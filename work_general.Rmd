@@ -1,0 +1,352 @@
+---
+title: "NYC Trip Analysis"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+# Question 1 >  
+### Programmatically download and load into our favorite analytical tool the trip data for September 2015.  
+```{r}
+# Fetch data for September 2015 "Green" cabs using pre-defined function in R
+if (file.exists("data.csv") == FALSE) {
+  status <- download.file("https://s3.amazonaws.com/nyc-tlc/trip+data/green_tripdata_2015-09.csv", destfile = "data.csv", quiet = TRUE)
+}
+
+```
+
+### Report how many rows and columns of data we have loaded.  
+```{r}
+
+# read the downloaded dataset and identify its dimensions
+data <- read.csv("data.csv")
+ncol(data) # Number of columns present in our dataset
+nrow(data) # Number of rows present in our dataset
+summary(data) # We compute a summary of the data present in each column of our dataset - this will help us later
+```
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+# Question 2 >  
+### Plot a histogram of the number of the trip distance ("Trip Distance").  
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# plot a histogram of the trip distances ("Trip Distance")
+ggplot(data, aes(x=Trip_distance)) + geom_histogram(binwidth = 5, color="black", fill="white")
+
+```
+
+_Based on the histogram & summary above, we can see that this feature contains outliers - so we find out the standard deviation of this feature._ 
+_Then we only consider the data points that fall within zero to 3 standard deviations away (in terms of range) from the mean (= 2.968 miles)._  
+
+```{r}
+
+sd.trip.distance <- sd(data$Trip_distance) 
+relevant.data <- subset(data, Trip_distance <= 2.968 + (3*sd.trip.distance)) 
+
+```
+
+_The above tuned dataset contains most data points (99.7%) from a Trip distance perspective, minus the outliers that made our previous histogram difficult to read._  
+
+```{r}
+
+ggplot(relevant.data, aes(x=Trip_distance)) + geom_histogram(color="red", fill="white") + geom_vline(xintercept = 2.968, linetype="dashed", color="blue") + geom_vline(xintercept = 1.98, color="blue")
+
+```
+
+### Report any structure we find and any hypotheses we have about that structure.  
+
+_Based on the histogram above, we can infer that the distribution of trip distances is unimodal and essentially right-skewed. The two measures of central tendency, i.e. median (1.98, solid blue line) and mean (2.968, dashed blue line) are plotted on the histogram to provide a better idea of the data._  
+
+```{r}
+ggplot(relevant.data, aes(x=Trip_distance)) + geom_histogram(aes(y=..density..), color="grey", fill="white") + geom_vline(xintercept = 2.968, linetype="dashed", color="blue") + geom_vline(xintercept = 1.98, color="blue") + geom_density(alpha=0.1, color="red", fill="yellow")
+```
+
+_Superimposing a density curve upon the histogram, we can see that the distribution approximates to a lognormal distribution (with sigma value 1)._  
+_This distribution is similar to income distributions in society, etc._  
+
+_The general inference here is that most taxi trips are short hauls (less than 4 miles, accounting for 77% of total trips in September) (which makes sense since these are taxis plying within NYC), with 1.05 miles (mode) being the maxima i.e. most of these cabs will travel only 1.05 miles on an average (per journey)._   
+_Having said that, we can see that a few taxis (22.63%) do end up traveling more than 4 miles per journey!_  
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+# Question 3 >  
+### Report mean and median trip distance grouped by hour of day.  
+
+_Over here, the only columns/fields indicating time (hour) of the day from a taxi trip perspective are lpep.pickup.datetime and Lpep.dropoff.datetime_  
+_We shall thus, use both fields and use them for visualizing and reporting mean and median trip distances grouped by hour of day._  
+
+```{r}
+# firstly, we need to convert the datatype of the datetime columns from factor to date-time
+data$lpep_pickup_datetime <- as.character(data$lpep_pickup_datetime)
+data$lpep_pickup_datetime <- strptime(data$lpep_pickup_datetime, format = "%Y-%m-%d %H:%M:%S") # can use format = "%F %T" for conciseness
+data$Lpep_dropoff_datetime <- as.character(data$Lpep_dropoff_datetime)
+data$Lpep_dropoff_datetime <- strptime(data$Lpep_dropoff_datetime, format = "%F %T") # performs similar conversion, as above
+
+# choosing the pickup datetime for further analysis and reporting, we seperate the date-time columns into 2 seperate ones - one for date and other for time
+# data$pickup_date <- format(data$lpep_pickup_datetime, format = "%F"); data$pickup_date <- strptime(data$pickup_date, format = "%F") # can be removed? unnecessary!
+data$pickup_time <- format(data$lpep_pickup_datetime, format = "%T"); data$pickup_time <- as.POSIXct(data$pickup_time, format = "%T")
+# data$dropoff_date <- format(data$Lpep_dropoff_datetime, format = "%F"); data$dropoff_date <- strptime(data$dropoff_date, format = "%F") # can be removed? unnecessary!
+data$dropoff_time <- format(data$Lpep_dropoff_datetime, format = "%T"); data$dropoff_time <- as.POSIXct(data$dropoff_time, format = "%T")
+
+mean.trp.dst.per.hour.pickup <- aggregate(Trip_distance ~ cut(pickup_time, breaks = "1 hour", labels = FALSE), data = data, FUN = mean)
+median.trp.dst.per.hour.pickup <- aggregate(Trip_distance ~ cut(pickup_time, breaks = "1 hour", labels = FALSE), data = data, FUN = median)
+trp.dst.per.pickup.hour <- cbind(mean.trp.dst.per.hour.pickup, median.trp.dst.per.hour.pickup[,2])
+p1 <- ggplot(trp.dst.per.pickup.hour, aes(x=trp.dst.per.pickup.hour[,1])) + geom_line(aes(y=trp.dst.per.pickup.hour[,2]), linetype="dashed", color="blue") + geom_line(aes(y=trp.dst.per.pickup.hour[,3]), color="red") + geom_point(aes(y=trp.dst.per.pickup.hour[,2])) + geom_point(aes(y=trp.dst.per.pickup.hour[,3]))
+p1 + ggtitle("Trip distances grouped by hour of the day (based on pickup times)", subtitle = "Mean in dashed blue, median in solid red") + xlab("Nth hour of the day") + ylab("Trip distance (mean/median)")
+
+mean.trp.dst.per.hour.dropff <- aggregate(Trip_distance ~ cut(dropoff_time, breaks = "1 hour", labels = FALSE), data = data, FUN = mean)
+median.trp.dst.per.hour.dropoff <- aggregate(Trip_distance ~ cut(dropoff_time, breaks = "1 hour", labels = FALSE), data = data, FUN = median)
+trp.dst.per.dropoff.hour <- cbind(mean.trp.dst.per.hour.dropff, median.trp.dst.per.hour.dropoff[,2])
+p1 <- ggplot(trp.dst.per.dropoff.hour, aes(x=trp.dst.per.dropoff.hour[,1])) + geom_line(aes(y=trp.dst.per.dropoff.hour[,2]), linetype="dashed", color="blue") + geom_line(aes(y=trp.dst.per.dropoff.hour[,3]), color="red") + geom_point(aes(y=trp.dst.per.dropoff.hour[,2])) + geom_point(aes(y=trp.dst.per.dropoff.hour[,3]))
+p1 + ggtitle("Trip distances grouped by hour of the day (based on dropoff times)", subtitle = "Mean in dashed blue, median in solid red") + xlab("Nth hour of the day") + ylab("Trip distance (mean/median)")
+
+```
+
+### We'd like to get a rough sense of identifying trips that originate or terminate at one of the NYC area airports. Can we provide a count of how many transactions fit this criteria, the average fare, and any other interesting characteristics of these trips.    
+
+_The New York metropolitan area is essentially served by 3 airports (Source: Wikipedia), and we shall consider them all for our analysis, one by one._  
+
+```{r}
+# The co-ordinates for JFK (John F. Kennedy airport) are 40.6413 N, 73.7781 W
+jfk.origin <- subset(data, round(Pickup_latitude, digits = 2) == 40.64 & round(Pickup_longitude, digits = 2) == -73.78) # JFK pickups  
+jfk.terminate <- subset(data, round(Dropoff_latitude, digits = 2) == 40.64 & round(Dropoff_longitude, digits = 2) == -73.78) # JFK dropoffs
+
+# The co-ordinates for LGA (LaGuardia airport) are 40.7769 N, 73.8740 W
+lga.origin <- subset(data, round(Pickup_latitude, digits = 2) == 40.78 & round(Pickup_longitude, digits = 2) == -73.87) # LGA pickups
+lga.terminate <- subset(data, round(Dropoff_latitude, digits = 2) == 40.78 & round(Dropoff_longitude, digits = 2) == -73.87) # LGA dropoffs
+
+# The co-ordinates for EWR (Newark Liberty International airport) are 40.6895 N, 74.1745 W
+ewr.origin <- subset(data, round(Pickup_latitude, digits = 2) == 40.69 & round(Pickup_longitude, digits = 2) == -74.17) # EWR pickups
+ewr.terminate <- subset(data, round(Dropoff_latitude, digits = 2) == 40.69 & round(Dropoff_longitude, digits = 2) == -74.17) # EWR dropoffs
+
+trips.to.and.from.airports <- rbind(jfk.origin, jfk.terminate, lga.origin, lga.terminate, ewr.origin, ewr.terminate) # all trips to and from airports
+
+NROW(trips.to.and.from.airports) # Number of transactions fitting this criteria
+mean(trips.to.and.from.airports$Total_amount) # average amount charged to customer(s) in USD, upon completion of trip
+
+```
+_This ($49.41) is quite expensive, since the overall average fare for taxi trips in September 2015 is only $15.03, the median being even lesser at $11.76._  
+_Let's try to find some more deviating characteristics about such trips - in order to be able to surmise why they might be so expensive compared to regular taxi trips._  
+
+
+_To begin with, we can find out more such interesting characteristics for these trips._  
+```{r}
+summary(trips.to.and.from.airports$Passenger_count) # mean and median passenger counts don't stand out, so this cannot be the reason for the high fare
+hist(trips.to.and.from.airports$Passenger_count, xlab = "Passenger Count", ylab = "Number of trips")
+
+summary(trips.to.and.from.airports$Trip_distance) # in miles, mean(13.81) and median(14.18) trip distances are remarkably high (vs 2.968 and 1.98 respectively, overall)
+hist(trips.to.and.from.airports$Trip_distance, xlab = "Trip distance (in miles)", ylab = "Number of trips")
+
+as.numeric(mean((trips.to.and.from.airports$Lpep_dropoff_datetime - trips.to.and.from.airports$lpep_pickup_datetime)))/60 # mean trip time (in minutes) is 39.3 mins
+as.numeric(median((trips.to.and.from.airports$Lpep_dropoff_datetime - trips.to.and.from.airports$lpep_pickup_datetime)))/60 # median trip time (in minutes) is 33.4 mins
+
+hist(trips.to.and.from.airports$Payment_type, xlab = "Payment types - 1:Credit Card, 2:Cash, 3:No charge") # as we can see, most customers prefer to pay using their credit cards
+
+```
+
+_Thus, to conclude, the higher fares paid by passengers travelling to and from airports are most probably a direct consequence of longer trip distances and durations._  
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+# Question 4 >  
+### Build a derived variable for tip as a percentage of the total fare.  
+
+```{r}
+data$tip.to.fare.pct.ratio <- (data$Tip_amount/data$Total_amount) * 100
+
+# we have to keep in mind that the field Total_amount has 4172 cases with a value of zero. Also, 2417 cases have negative values (less than zero)
+# From a tip perspective, we have 38 cases where the Tip_amount is negative (less than zero)
+
+summary(data$tip.to.fare.pct.ratio) # as a result, we have 4172 NA values in our newly generated derived column
+```
+
+### Build a predictive model for tip as a percentage of the total fare. Use as much of the data as we like (or all of it).     
+
+```{r}
+
+library(corrplot)
+data.feats.for.correlation <- select(data, VendorID, Passenger_count, Trip_distance, Fare_amount, Payment_type, Trip_type, tip.to.fare.pct.ratio)
+data.cor <- cor(data.feats.for.correlation, use = "complete.obs")
+corrplot(data.cor, order = "hclust") # based on this, we can see that 4 variables show some degree of correlation with our response variable (Payment_type being the best)
+
+# we shall also go ahead and do best subset selection to identify the best predictors from our set of features present in data
+library(leaps)
+data$lpep_pickup_datetime <- as.POSIXct(data$lpep_pickup_datetime)    # convert to vector instead of list type (date data type)
+data$Lpep_dropoff_datetime <- as.POSIXct(data$Lpep_dropoff_datetime)  # convert to vector instead of list type (date data type)
+reg.fss <- regsubsets(tip.to.fare.pct.ratio ~ ., data = data[, -c(12, 15, 17, 19)], nvmax = 23) # exclude incompatible columns, perform selection check
+reg.fss.summary <- summary(reg.fss)
+reg.fss.summary # the best predictors in order are Payment_type, Trip_type, improvement_surcharge, VendorID, Pickup_longitude & Pickup_latitude, Fare_amount, Trip_distance
+reg.fss.summary$rsq
+
+```
+
+_The best predictors in order of importance are Payment type, Trip type, improvement surcharge, VendorID, Pickup longitude & Pickup latitude, Fare amount, Trip distance_
+
+
+_We split the data into training and testing datasets, for training and testing the performance of our model._  
+
+```{r}
+
+sample_size <- floor(NROW(data) * 0.75) # choosing 75% data for training, rest 25% for testing
+set.seed(1)                             # setting a seed value so that the split is reproducible
+training.indexes <- sample(seq_len(NROW(data)), size = sample_size)
+
+training.data <- data[training.indexes, ] # training dataset
+testing.data <- data[-training.indexes, ] # testing dataset, the two are mutually exclusive
+
+```
+
+_So to begin with, we build a multiple linear regression model for predicting the newly created variable - by including the 4 (with good correlation), plus time related predictor variables_  
+
+```{r}
+
+LM.all <- lm(tip.to.fare.pct.ratio ~ pickup_time + dropoff_time + Trip_distance + Fare_amount + Payment_type + Trip_type, data = training.data)
+summary(LM.all)
+
+```
+
+_Based on the model built above, we can see that a few features have better correlation with the response variable (tip.to.fare.pct.ratio)._   
+_To build a model with better prediction capabilities, we shall build a second multiple linear regression model taking only the predictor variables that have low p-values (lower than 0.01, which means that they are meaningful additions to our regression model - since there is less than 1% chance that they are otherwise)._
+
+```{r}
+LM.selective <- lm(tip.to.fare.pct.ratio ~ dropoff_time + Trip_distance + Fare_amount + Payment_type + Trip_type, data = training.data)
+summary(LM.selective)
+
+```
+
+_As seen from the summary, this model can account for 59.98% of the data points - which is a pretty good outcome for a linear fit model._  
+_All in all - the "Payment type" predictor seems to do the best job of predicting our newly derived response variable here. Customers paying for their ride using a credit card (payment type = 1 corresponds to credit card as a method of payment) are highly likely to tip the taxi driver._   
+_Coupled with the other predictor variables, this model should give us a reasonable estimate of the tip to fare ratio for a new trip. _  
+
+```{r}
+plot(LM.selective$residuals) # plot the residuals against indexes
+
+```
+
+_The residuals, when plotted look completely random - so there also doesn't seem to be a pattern that we are missing here - broadly speaking._  
+
+### Provide an estimate of performance using an appropriate sample, and show our work.  
+
+_Now we test our multiple linear regression model for performance_  
+
+```{r}
+
+prediction_test <- select(testing.data, tip.to.fare.pct.ratio)
+prediction_test <- prediction_test %>% rename(true_value = tip.to.fare.pct.ratio)
+prediction_test$LM.prediction <- predict(LM.selective, select(testing.data, dropoff_time, Trip_distance, Fare_amount, Payment_type, Trip_type))
+prediction_test$LM.error <- abs(prediction_test$true_value - prediction_test$LM.prediction)
+summary(prediction_test$LM.error) # we can see that the mean (is deviated due to data) and median error are pretty acceptable
+
+Payment_type <- as.numeric(testing.data$Payment_type)
+new.prediction.test <- data.frame(prediction_test, Payment_type) # add payment method info to the prediction results, to use while visualizing later
+
+ggplot(new.prediction.test, aes(x=true_value, y=LM.error, color=Payment_type)) + geom_point()
+
+```
+
+_As seen here, we get an acceptable prediction of the tip to fare ratio for the lower values, and the error starts climbing as the ratio increases by itself (beyond 20 or so)._
+_Thus, this model cannot be used to predict unusually high tip amounts. It can provide acceptable performance for low tip amounts._  
+
+
+_We also try a conditional tree model (binary)._  
+
+```{r}
+
+library(party)
+
+data.for.prediction <- select(training.data, Trip_distance, Fare_amount, Tip_amount, Payment_type, Trip_type, tip.to.fare.pct.ratio)
+data.for.prediction <- na.omit(data.for.prediction)
+Tree.selective <- ctree(tip.to.fare.pct.ratio ~ Trip_distance + Fare_amount + Payment_type + Trip_type, data = data.for.prediction)
+plot(Tree.selective)
+
+```
+
+_Now we test the performance of our tree model -_  
+
+```{r}
+
+new.prediction.test$tree.prediction <- treeresponse(Tree.selective, select(testing.data, Trip_distance, Fare_amount, Payment_type, Trip_type))
+new.prediction.test$tree.prediction <- as.numeric(new.prediction.test$tree.prediction)
+new.prediction.test$tree.error <- abs(new.prediction.test$true_value - new.prediction.test$tree.prediction)
+summary(new.prediction.test$tree.error)
+
+ggplot(new.prediction.test, aes(x=true_value, y=tree.error, color=Payment_type)) + geom_point()
+
+```
+
+_As seen above the decision tree model also ends up giving us a debatably more-reliable estimate of the tip to fare ratio._  
+_We can see that this model results in lower mean and median (= zero!) errors in predicting the ratio across our test dataset._  
+
+
+
+_(Given more time at hand, I would train a Random Forest model to assess for performance improvements - if any)_    
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+# Question 5 (Option A: Distributions) >  
+### Build a derived variable representing the average speed over the course of a trip.  
+
+```{r}
+data$Trip_duration <- difftime(data$Lpep_dropoff_datetime, data$lpep_pickup_datetime, units = "hours")
+data$Trip_duration <- as.numeric(data$Trip_duration)
+data$Average_trip_speed <- data$Trip_distance/data$Trip_duration
+summary(data$Average_trip_speed) # has infinite values for average trip speed
+
+data.with.valid.speeds <- subset(data, is.finite(data$Average_trip_speed)) # so, we filter out the rows with infinite speed values, and use this going forward
+
+```
+
+### Can we perform a test to determine if the average trip speeds are materially the same in all weeks of September? If we decide they are not the same, can we form a hypothesis regarding why they differ?   
+
+```{r}
+# 1 week = 168 hours
+av.speed.over.week.1 <- aggregate(Average_trip_speed ~ cut(lpep_pickup_datetime, breaks = "168 hours"), data = data.with.valid.speeds, FUN = mean) # using pickup time
+av.speed.over.week.1 <- av.speed.over.week.1 %>% rename(week.beginning.from = 'cut(lpep_pickup_datetime, breaks = "168 hours")')
+av.speed.over.week.1
+
+av.speed.over.week.2 <- aggregate(Average_trip_speed ~ cut(Lpep_dropoff_datetime, breaks = "168 hours"), data = data.with.valid.speeds, FUN = mean) # using dropoff time
+av.speed.over.week.2 <- av.speed.over.week.2 %>% rename(week.beginning.from = 'cut(Lpep_dropoff_datetime, breaks = "168 hours")')
+av.speed.over.week.2
+
+```
+
+_We wanted to know if trip speeds are essentially the same in all weeks of September - as seen above, they are indeed more or less similar throughout the month._  
+_From my perspective, a deviation of one or two miles per hour is not significant enough to justify a deeper analysis into causes and reasons._  
+
+### Can we build up a hypothesis of average trip speed as a function of time of day?  
+
+```{r}
+av.speed.over.time.of.day <- aggregate(Average_trip_speed ~ cut(pickup_time, breaks = "1 hour", labels = FALSE), data = data.with.valid.speeds, FUN = mean)
+av.speed.over.time.of.day <- av.speed.over.time.of.day %>% rename(Nth.hour.of.day = 'cut(pickup_time, breaks = "1 hour", labels = FALSE)')
+av.speed.over.time.of.day
+
+p2 <- ggplot(av.speed.over.time.of.day, aes(x=Nth.hour.of.day)) + geom_line(aes(y=Average_trip_speed), color="red") + geom_point(aes(y=Average_trip_speed))
+p2
+
+```
+
+_As we can see from the plot, taxi trips are slowest in the time frame when people finish work and travel back home (the 3pm to 8pm window)_  
+
+_So the hypothesis that can be built based on this is - _  
+
+### If one books a green cab in NYC within the 3pm to 8pm window on a given day in the month of September 2015, they should be prepared to put up with average trip speeds below 14 miles per hour.  
+
+_This hypothesis is specific, and can be tested using the dataset we have worked on here._  
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+
